@@ -9,25 +9,17 @@ from spotipy.oauth2 import SpotifyClientCredentials
 from configparser import RawConfigParser
 import csv
 
-if __name__ == '__main__':
-    config = RawConfigParser()
-    config.read('account.ini')
-    cid = config.get('Spotify', 'CLIENT_ID')
-    secret = config.get('Spotify', 'CLIENT_SECRET')
+config = RawConfigParser()
+config.read('account.ini')
+cid = config.get('Spotify', 'CLIENT_ID')
+secret = config.get('Spotify', 'CLIENT_SECRET')
 
-    song_data = []
+# Authentication - without user login
+client_credentials_manager = SpotifyClientCredentials(client_id=cid, client_secret=secret)
+sp = spotipy.Spotify(client_credentials_manager = client_credentials_manager)
 
-    # Authentication - without user
-    client_credentials_manager = SpotifyClientCredentials(client_id=cid, client_secret=secret)
-    sp = spotipy.Spotify(client_credentials_manager = client_credentials_manager)
-
-    likes_playlist = "https://open.spotify.com/playlist/2kLQgqz4oDlYk0wRuIJYde?si=e4c5dab8d6624bb5"
-    # (TEST) likes_playlist = "https://open.spotify.com/playlist/36tmxCwDIGmNY2hF4CsUJw?si=674cb9d61e4e4790"
-
-    likes_playlist_URI = likes_playlist.split("/")[-1].split("?")[0]
-
-    track_uris = [x["track"]["uri"] for x in sp.playlist_tracks(likes_playlist_URI)["items"]]
-    for track in sp.playlist_tracks(likes_playlist_URI)["items"]:
+def retrieve_song_data(playlist, like):
+    for track in sp.playlist_tracks(playlist)["items"]:
         song = {}
 
         #URI
@@ -72,12 +64,28 @@ if __name__ == '__main__':
         song['time_signature'] = audio_feats['time_signature']
 
         # Like/Dislike Label
-        song['like'] = 1
+        song['like'] = 1 if like else 0
 
         song_data.append(song)
 
-    with open('Liked_Songs.csv', 'w', encoding='UTF8') as f:
-        writer = csv.writer(f)
-        writer.writerow(song_data[0].keys())
-        for song in song_data:
-            writer.writerow(song.values())
+if __name__ == '__main__':
+
+    song_data = []
+
+    likes_playlist = "https://open.spotify.com/playlist/2kLQgqz4oDlYk0wRuIJYde?si=e4c5dab8d6624bb5"
+    dislikes_playlist = "https://open.spotify.com/playlist/5EbV4OSgNBqBl8IRinrxOs?si=6dbf6c9490764208"
+
+    likes_playlist_URI = likes_playlist.split("/")[-1].split("?")[0]
+    dislikes_playlist_URI = dislikes_playlist.split("/")[-1].split("?")[0]
+
+    # track_uris = [x["track"]["uri"] for x in sp.playlist_tracks(likes_playlist_URI)["items"]]
+
+    retrieve_song_data(likes_playlist_URI, True)
+    retrieve_song_data(dislikes_playlist_URI, False)
+    
+    if song_data:
+        with open('All_Songs.csv', 'w', encoding='UTF8') as f:
+            writer = csv.writer(f)
+            writer.writerow(song_data[0].keys())
+            for song in song_data:
+                writer.writerow(song.values())
