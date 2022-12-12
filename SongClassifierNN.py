@@ -4,53 +4,48 @@ CSS581 Machine Learning Project
 Song Classifier Neural Network
 """
 
-import os
-import io
-import sys
 import numpy as np
-import tables
-import math
 from statistics import mean
 import pandas as pd
-from scipy import stats
-import h5py
-
-import seaborn as sns
 import matplotlib.pyplot as plt
-
-from sklearn.model_selection import KFold
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import GradientBoostingClassifier
-
 from sklearn.metrics import precision_score, recall_score, f1_score, roc_auc_score, auc
-from sklearn.metrics import mean_absolute_error
-from sklearn.metrics import mean_squared_error
-from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 from sklearn.metrics._plot.roc_curve import RocCurveDisplay
-
 from sklearn.neural_network import MLPClassifier
-
-from interpret.glassbox import ExplainableBoostingClassifier
-from interpret import show
-
+from sklearn.impute import SimpleImputer
 import warnings
 warnings.filterwarnings('ignore')
 
-from sklearn.impute import SimpleImputer
-
-import csv
 pd.set_option('display.max_columns', None)
 pd.set_option('display.max_rows', None)
 
 
-# Build Cross-Validated Classification Model
+def get_abs_mean_weights(model, features):
+    mean_coefs = [np.abs(i.mean()) for i in model.coefs_[0]]
+    feature_importance = pd.DataFrame({ "Features": features })
+    feature_importance["Coef"] = mean_coefs
+    return feature_importance
+
+def scale_weights(feature_importance):
+    # Scaling the weights to be between 0 and 1
+    feature_importance["FeatImp"] = (
+      (feature_importance["Coef"] - feature_importance["Coef"].min())
+        / (feature_importance["Coef"].max() - feature_importance["Coef"].min())
+      ).round(4)
+    return feature_importance
+
+def compute_feature_importance(model, features):
+    weights = get_abs_mean_weights(model, features)
+    weights = scale_weights(weights)
+    feature_importance = weights.drop("Coef", axis=1).reset_index()
+    feature_importance_dict = dict(
+      zip(feature_importance["Features"], feature_importance["FeatImp"])
+    )
+    return feature_importance_dict
+
+# Train Classification Model & Calculate Metrics
 def cv_train(x, y):
-
-  model = MLPClassifier(solver='lbfgs', alpha=1e-5, hidden_layer_sizes=(5, 5), random_state=1)
-
-  tot_prec, tot_recall, tot_f1score, tot_auc = [], [], [], []
 
   # Initialize ROC Plot Vars
   tprs = []
@@ -58,52 +53,48 @@ def cv_train(x, y):
   mean_fpr = np.linspace(0, 1, 100)
   fig, ax = plt.subplots()
 
-  # Split data into folds
-  kfolds = KFold(n_splits=10, shuffle=True, random_state=7)
-  kfolds.get_n_splits(x, y)
+  # Split the data up between train/test
+  x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.30, random_state=42)
 
-  # Run training and testing on each fold
-  for i, (train_index, test_index) in enumerate(kfolds.split(x,y)):
-    # Normalize the data
-    scaler = StandardScaler().fit(x.iloc[train_index])
-    x_train = scaler.transform(x.iloc[train_index])
-    x_test = scaler.transform(x.iloc[test_index])
+  # Normalize the data
+  scaler = StandardScaler().fit(x)
+  x_train = scaler.transform(x_train)
+  x_test = scaler.transform(x_test)
 
-    # Train the model
-    model.fit(x_train, y[train_index])
+  # Train the model
+  model.fit(x_train, y_train)
 
-    # Save ROC Curve Data for this fold
-    viz = RocCurveDisplay.from_estimator(
-        model,
-        x_test,
-        y[test_index],
-        name="ROC fold {}".format(i),
-        alpha=0.3,
-        lw=1,
-        ax=ax,
-    )
-    interp_tpr = np.interp(mean_fpr, viz.fpr, viz.tpr)
-    interp_tpr[0] = 0.0
-    tprs.append(interp_tpr)
-    aucs.append(viz.roc_auc)
+  # Save ROC Curve Data
+  viz = RocCurveDisplay.from_estimator(
+      model,
+      x_test,
+      y_test,
+      name="ROC",
+      alpha=0.3,
+      lw=1,
+      ax=ax,
+  )
+  interp_tpr = np.interp(mean_fpr, viz.fpr, viz.tpr)
+  interp_tpr[0] = 0.0
+  tprs.append(interp_tpr)
+  aucs.append(viz.roc_auc)
 
-    # Make predictions on test data
-    y_pred = model.predict(x_test)
+  # Make predictions on test data
+  y_pred = model.predict(x_test)
 
-    tot_prec.append(precision_score(y[test_index], y_pred, average='binary', pos_label=1, zero_division=0))
-    tot_recall.append(recall_score(y[test_index], y_pred, average='binary', pos_label=1, zero_division=0))
-    tot_f1score.append(f1_score(y[test_index], y_pred, average='binary', pos_label=1, zero_division=0))
-    try:
-      tot_auc.append(roc_auc_score(y[test_index], model.predict_proba(x_test)[:, 1]))
-    except ValueError:
-      pass
-    
+  prec = precision_score(y_test, y_pred, average='binary', pos_label=1, zero_division=0)
+  rec = recall_score(y_test, y_pred, average='binary', pos_label=1, zero_division=0)
+  f1 = f1_score(y_test, y_pred, average='binary', pos_label=1, zero_division=0)
+  try:
+    auc = roc_auc_score(y_test, model.predict_proba(x_test)[:, 1])
+  except ValueError:
+    auc = None
 
-  totals = {
-      "prec": tot_prec,
-      "rec": tot_recall,
-      "f1score": tot_f1score,
-      "auc": tot_auc,
+  metrics = {
+      "prec": prec,
+      "rec": rec,
+      "f1score": f1,
+      "auc": auc,
   }
 
   roc = {
@@ -113,20 +104,15 @@ def cv_train(x, y):
       "mean_fpr": mean_fpr
   }
 
-  return totals, roc
+  return metrics, roc
 
-# Compute Metrics: Precision, Recall, F1 Score, AUC, ROC Curve
-def compute_metrics(totals, roc):
+# Display Metrics: Precision, Recall, F1 Score, AUC, ROC Curve
+def display_metrics(metrics, roc):
 
-  avg_prec = round(mean(totals['prec']), 2)
-  avg_recall = round(mean(totals['rec']), 2)
-  avg_f1score = round(mean(totals['f1score']), 2)
-  avg_auc = round(mean(totals['auc']), 2)
-
-  print("Average Precision: ", avg_prec)
-  print("Average Recall: ", avg_recall)
-  print("Average F1 Score: ", avg_f1score)
-  print("Average AUC: ", avg_auc)
+  print("Precision: ", metrics["prec"])
+  print("Recall: ", metrics["rec"])
+  print("F1 Score: ", metrics["f1score"])
+  print("AUC: ", metrics["auc"])
 
   ax = roc['ax']
   mean_fpr = roc['mean_fpr']
@@ -168,15 +154,40 @@ def compute_metrics(totals, roc):
 if __name__ == '__main__':
 
     song_dataset = pd.read_csv('All_Songs.csv')
+    # unlabeled_songs = pd.read_csv('Unknown_Songs.csv')
 
     # Feature Engineering
-    x = song_dataset.drop(['track_uri', 'track_name', 'artist_name', 'artist_pop', 'artist_genres', 'album', 'track_pop', 'type', 'id', 'uri', 'track_href', 'analysis_url', 'like'], axis=1)
+    x = song_dataset.drop(
+      ['track_uri', 'track_name', 'artist_name', 
+      'artist_pop', 'artist_genres', 'album', 'track_pop', 'type', 'id', 'uri', 
+      'track_href', 'analysis_url', 'like'], 
+      axis=1
+    )
     x[:] = SimpleImputer(strategy='mean').fit_transform(x)
 
     y = np.ravel(song_dataset['like'])
 
-    # Train NN & Compute Metrics
+    model = MLPClassifier(
+      activation='relu',
+      solver='adam', #sgd
+      alpha=1e-5, 
+      hidden_layer_sizes=(50,), 
+      random_state=7
+    )
+
+    # Train NN
+    metrics, roc = cv_train(x, y)
     print("Results:")
-    log_totals, log_roc = cv_train(x, y)
-    compute_metrics(log_totals, log_roc)
+
+    # Get Feature Importances
+    features = x.columns.tolist()
+    feature_importance = compute_feature_importance(model, features)
+    print(feature_importance)
+
+    # Compute Metrics
+    display_metrics(metrics, roc)
     print('\n')
+
+    # Predict on new/unknown songs
+    # predictions = model.predict(unlabeled_songs)
+    # Output predictions somehow
