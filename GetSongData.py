@@ -20,21 +20,25 @@ token = tk.request_client_token(cid, secret)
 spotify = tk.Spotify(token)
 
 def retrieve_song_data(playlist, like):
+    """
+    Retrieve metadata & audio features from spotify for
+    a given playlist.
 
+    :param str playlist: The spotify playlist to receive data for
+    :param int like: val correlating to desired 'like' col value ->
+                     0 for no label, 1 for like, 2 for dislike
+    """
     sp_items = []
     first_items = spotify.playlist_items(playlist)
     for item in spotify.all_items(first_items):
-        # Append tracks/episodes to a list or whatever
+        # Append each track object to sp_items list
         sp_items.append(item)
-        sp_items = sp_items[-10:]
-
-    # print(np.array(spotify.artist(sp_items[324].track.artists[0].id).genres))
+        # sp_items = sp_items[-10:]
 
     ctr = 1
     for sp_item in sp_items:
-
         if ctr % 50 == 0:
-            time.sleep(10)
+            time.sleep(15)
         ctr += 1
         print(ctr)
 
@@ -80,7 +84,12 @@ def retrieve_song_data(playlist, like):
         song['time_signature'] = audio_feats.time_signature
 
         # Like/Dislike Label
-        song['like'] = 1 if like else 0
+        if like == 1:
+            song['like'] = 1
+        elif like == 2:
+            song['like'] = 0
+        else:
+            song['like'] = None
 
         song_data.append(song)
 
@@ -90,22 +99,36 @@ if __name__ == '__main__':
     song_data = []
 
     likes_playlist = "https://open.spotify.com/playlist/2kLQgqz4oDlYk0wRuIJYde?si=e4c5dab8d6624bb5"
-    dislikes_playlist = "https://open.spotify.com/playlist/5EbV4OSgNBqBl8IRinrxOs?si=6dbf6c9490764208"
-    sample_playlist = "https://open.spotify.com/playlist/37i9dQZF1DWV7EzJMK2FUI?si=d20f8b95415d44a9z"
-
     likes_playlist_URI = likes_playlist.split("/")[-1].split("?")[0]
+
+    dislikes_playlist = "https://open.spotify.com/playlist/5EbV4OSgNBqBl8IRinrxOs?si=6dbf6c9490764208"
     dislikes_playlist_URI = dislikes_playlist.split("/")[-1].split("?")[0]
+
+    unlabeled_playlist = "https://open.spotify.com/playlist/2y8nsWwLYF4tldbQ6N4zLr?si=6a32b8f103f645e8"
+    unlabeled_playlist_URI = unlabeled_playlist.split("/")[-1].split("?")[0]
+
+    sample_playlist = "https://open.spotify.com/playlist/6ONlEMBWFyjj8L0UndJ47X?si=ca8903937b3f4bfc"
     sample_playlist_URI = sample_playlist.split("/")[-1].split("?")[0]
 
-    # track_uris = [x["track"]["uri"] for x in sp.playlist_tracks(likes_playlist_URI)["items"]]
-
-    # retrieve_song_data(likes_playlist_URI, True)
-    # time.sleep(15)
-    # retrieve_song_data(dislikes_playlist_URI, False)
-    retrieve_song_data(sample_playlist_URI, False)
+    retrieve_song_data(likes_playlist_URI, 1)
+    time.sleep(30)
+    retrieve_song_data(dislikes_playlist_URI, 2)
+    # retrieve_song_data(sample_playlist_URI, False)
     
     if song_data:
-        with open('test.csv', 'w', encoding='UTF8') as f:
+        with open('All_Songs.csv', 'w', encoding='UTF8') as f:
+            writer = csv.writer(f)
+            writer.writerow(song_data[0].keys())
+            for song in song_data:
+                writer.writerow(song.values())
+
+    # reset song data list and retrieve unlabeled
+    # songs to be predicted on
+    song_data = []
+    retrieve_song_data(unlabeled_playlist_URI, 0)
+
+    if song_data:
+        with open('Unlabeled_Songs.csv', 'w', encoding='UTF8') as f:
             writer = csv.writer(f)
             writer.writerow(song_data[0].keys())
             for song in song_data:
